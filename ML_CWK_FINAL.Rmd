@@ -1,0 +1,841 @@
+---
+title: "ML Coursework"
+author: "Matteo Mario Di Venti, Lorenzo Perlini"
+date: "29/05/2022"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+#Preamble
+
+Please note that the dataset included (german.data) is the raw subset not yet encoded. We decided to automate the encoding in the first section of the R markdown that follows.  
+
+```{r results = 'hide', message=FALSE, warning=FALSE, message=FALSE}
+library(ggplot2)
+library(tidyverse)
+library(rpart)
+library(rpart.plot)
+library(plotROC)
+library(ROCR)
+library(pROC)
+library(caret)
+library(ggpubr)
+library(InformationValue)
+library(tidyverse)
+library(leaps)
+library(glmnet)
+library(mlbench)
+#library(doMC)
+library(caret)
+library(class)
+library(reshape2)
+library(dplyr)
+```
+
+##Question 1
+we start by downloading the German credit data
+
+```{r data}
+
+####Please place your german.data file in the same location as the code###
+getwd()
+data <- read.table("german.data", sep = "")
+
+margin.table(prop.table(table(data$V1, data$V3, data$V4, data$V6, data$V7,
+                              data$V9, data$V14)),6) 
+##We compute margins so to see the distribution of each category 
+## and to choose how to divide them
+```
+
+We prooceed by encoding all the explanatory variables wheter quantitative or qualitative
+
+```{r encoding}
+#1 Credit balance
+Balance <- c()
+for (i in 1:1000){
+  if (data$V1[i] == "A12") {
+    Balance[i]= 1
+  } else if ( data$V1[i]=="A13") {
+    Balance[i]= 1} else { 
+    Balance[i]= 0}
+}
+
+#That way, I have created a vector in which users with no account or zero
+#balance are assgned to 0, users with some balance are assigned 1. The
+#Distinction make sense, as the 2 groups have similar magnitude.
+
+#2 Duration in months : it is nuymerical
+Duration_months <- data$V2
+
+#3 Credit history
+History <- c()
+for (i in 1:1000){
+  if (data$V3[i] == "A30") {
+    History[i]= 1
+  } else if ( data$V3[i]=="A31") {
+    History[i]= 1} else if ( data$V3[i]=="A32") {
+      History[i]= 1} else { 
+      History[i]= 0}
+}
+#Here I have assigned 1 to users with good credit history, 0 to others
+
+#4 Purpose
+#For this group I will select 3 kinds of purspose : buying a car, buying
+#something related to house and others
+Purpose1 <- c()
+for (i in 1:1000){
+  if (data$V4[i] == "A40") {
+    Purpose1[i]= 1
+  } else if ( data$V4[i]=="A41") {
+    Purpose1[i]= 1} else { 
+        Purpose1[i]= 0}
+}
+
+Purpose2 <- c()
+for (i in 1:1000){
+  if (data$V4[i] == "A42") {
+    Purpose2[i]= 1
+  } else if (data$V4[i]=="A43") {
+    Purpose2[i]= 1} else if ( data$V4[i]=="A44") {
+      Purpose2[i]= 1} else if (data$V5[i]== "A45"){
+        Purpose2[i] = 1
+      } else { 
+        Purpose2[i]= 0}
+}
+
+#So, Purpose1 will tell me if the person has used the money to buy a car,
+#Purpose2 will tell me if she used it for her house, the control group
+#(all zeros) is composed by people using it for other purposes
+
+#5 Credit ammount (numerical)
+Credit_ammount <- data$V5
+
+#6 Savings account
+#Here I will create 4 categories with each value being the inferior boundary of the set
+Savings1 <- c()
+for (i in 1:1000){
+  if (data$V6[i] == "A61") {
+    Savings1[i]= 0
+  } else if ( data$V6[i]=="A62") {
+    Savings1[i]= 100} else if (data$V6[i] == "A63"){
+      Savings1[i]= 500}else if (data$V6[i] == "A64"){
+        Savings1[i]= 1000} else { 
+      Savings1[i]= 0}
+}
+
+
+#7 Employment length
+#Here I will create 3 groups : employed for less than 1 year (including 
+#unemployed), employed for 1 to 4 years, employed for more than 4 years
+
+Employment_length1<- c()
+for (i in 1:1000){
+  if (data$V7[i] == "A71") {
+    Employment_length1[i]= 1
+  } else if ( data$V7[i]=="A74") {
+    Employment_length1[i]= 1} else { 
+        Employment_length1[i]= 0}
+}
+
+Employment_length2<- c()
+for (i in 1:1000){
+  if (data$V7[i] == "A75") {
+    Employment_length2[i]= 1
+  } else { 
+      Employment_length2[i]= 0}
+}
+
+#So, Employment_length1 displays the users with 1 to 4 years of work,
+#Employment_length2 the users with more than 4 years and the control group
+#are the ones with less than 1 year + unemployed
+
+#8 Installment rate in percentage of disposable income (numerical)
+Installment_rate <- data$V8
+
+#9 sex and marital status 
+#Here I divide by sex. However,
+#there seems to be some kind of mistake in the explanation of data,
+#as A95 value (single female) seems to be missing. 
+#I will proceed by considering A91 as male divorced/seprated,
+#A92 as female divorced/separated/married, A93 as male single
+#and A94 as male married/widowed.
+
+Male <-c()
+for (i in 1:1000){
+  if (data$V9[i] != "A92") {
+    Male[i]= 1
+  } else { 
+    Male[i]= 0}
+}
+
+#10 Guarantor
+Guarantor<- c()
+for (i in 1:1000){
+  if (data$V10[i] != "A101") {
+    Guarantor[i]= 1
+  } else { 
+    Guarantor[i]= 0}
+}
+
+#Here, the vector displays 1 if the user has a guarantor, 0 if not
+
+#11 Present redisence since (numerical)
+Residence_since <- data$V11
+
+#12
+House <- c()
+for (i in 1:1000){
+  if (data$V12[i] == "A121") {
+    House[i]= 1
+  } else { 
+      House[i]= 0}
+}
+
+Insurance <- c()
+for (i in 1:1000){
+  if (data$V12[i] == "A122") {
+    Insurance[i]= 1
+  } else { 
+    Insurance[i]= 0}
+}
+
+Car <-c()
+for (i in 1:1000){
+  if (data$V12[i] == "A123") {
+    Car[i]= 1
+  } else { 
+    Car[i]= 0}
+}
+
+#The vector house displays 1 if the users owns a house; if not, the
+#vector Insurance displays 1 if she owns an insurance. If not, the vector
+#car displays 1 if she owns a car
+
+#13 Age (numerical)
+Age<-data$V13
+
+#14 Other installment plans
+Other_plans<- c()
+for (i in 1:1000){
+  if (data$V14[i] != "A143") {
+    Other_plans[i]= 1
+  } else { 
+    Other_plans[i]= 0}
+}
+#Here the vector displays 1 if the user has a concurrent creditor, 0 if not
+
+#15 Housing
+FreeHousing <-c()
+for (i in 1:1000){
+  if (data$V15[i] == "A153") {
+    FreeHousing[i]= 1
+  } else { 
+    FreeHousing[i]= 0}
+}
+
+OwnHouse <- c()
+for (i in 1:1000){
+  if (data$V15[i] == "A152") {
+    OwnHouse[i]= 1
+  } else { 
+    OwnHouse[i]= 0}
+}
+
+# Here the vector Free housing displays the users with a free house, the
+# vetor OwnHouse users who own their house and the ones renting have
+# zeros in both
+
+#16 Number of existing credits at this bank (numerical)
+Number_credits <- data$V16
+
+#17 Job
+Skilled <- c()
+for (i in 1:1000){
+  if (data$V17[i] == "A173") {
+    Skilled[i]= 1
+  } else { 
+    Skilled[i]= 0}
+}
+
+Highly_Qualified <- c()
+for (i in 1:1000){
+  if (data$V17[i] == "A174") {
+    Highly_Qualified[i]= 1
+  } else { 
+    Highly_Qualified[i]= 0}
+}
+
+#Skilled displays 1 if the users is a skilled worker, Highly_Qualified
+#displays 1 if she is highly qualified ; if both display zeros, the user
+#is unemployed/unskilled
+
+#18 Number of people being liable to provide maintenance for (numerical)
+People_to_mantain <- data$V18
+
+#19 Telephone
+Telephone <- c()
+for (i in 1:1000){
+  if (data$V19[i] == "A192") {
+    Telephone[i]= 1
+  } else { 
+    Telephone[i]= 0}
+}
+
+#20 foreign worker
+Foreign_worker <- c()
+for (i in 1:1000){
+  if (data$V20[i] == "A201") {
+    Foreign_worker[i]= 1
+  } else { 
+    Foreign_worker[i]= 0}
+}
+
+#21 Output
+Output <- data$V21-1
+```
+
+Finally we create the dataframe 
+```{r}
+German <- cbind(Balance,Duration_months,History,Purpose1, Purpose2, 
+                Credit_ammount,Savings1,Employment_length1,
+                Employment_length2,Installment_rate,Male,Guarantor,
+                Residence_since,House,Insurance,Car,Age,Other_plans,
+                FreeHousing,OwnHouse,Number_credits,Skilled,
+                Highly_Qualified,People_to_mantain,Telephone,
+                Foreign_worker, Output)
+```
+After having encode our dataset and having described each of its components, we want to have a closer look at its summary statistics:
+```{r}
+summary(German)
+```
+For the majority of our variables (namely, the qualitative ones) the only use of descriptive statistics is to see by how much the condition is more/less respected than not. In other words, how many are the ones relatively to the zeros. 
+For example, if mean of Balance is 0.332, it means that we have 32.2% of ones. To better visualize this issue, we could use a table showing the percentages of the dummy variables
+```{r}
+margin.table(prop.table(table(Balance, History, Purpose1, Purpose2,
+                              Savings1, Employment_length1,Employment_length2,
+                              Male, Guarantor,Residence_since,House,Insurance,
+                              Car, Other_plans, FreeHousing, OwnHouse, Skilled,
+                              Highly_Qualified, Telephone, Foreign_worker)),6)
+```
+
+And by choosing the item we are interested in, we can see how many its proportions. In particular, we have that History,Male, OwnHouse, Skilled, ForeignWorker are the only items with more ones than zeros.
+As far as quantitative variables are concerned :
+```{r}
+
+summary(cbind(Duration_months, Credit_ammount, Installment_rate, Residence_since,
+        Number_credits,People_to_mantain, Age))
+
+
+```
+We have that on average the duration is 20.9 months, and that duration is between 4 and 72 months. The user with the lowest credit amount has 250DM, the one with the highest has 18424 DM, with an average of 3271.
+Given that the 3rd quarter is not far from the mean (3972), we can say that the distance between that value and the max is very high. On average, users have owned a residence for 2.845 years and they have 1.407 existing credits at this bank. 
+They have on average 1.155 people to maintain (and in no case more than 2). 
+The average age of the users is 35.55 years, however it seems that the distribution displays similarities with respect to the amount of credits, as the maximum age is much larger than the mean and the 3rd quarter. We expect to have a skewed distribution.
+
+##QUESTION 2
+Now we want to investigate how much correlated are our variables to our outcome. We will do it only for our training sample, which we define as follows :
+```{r}
+set.seed(5257)
+random_vector <- sample(c(1:1000), replace = FALSE, prob = NULL)
+German_rd <- c()
+for (i in random_vector) {
+  German_rd = rbind(German_rd, German[i,])
+}
+Training_Validation <- German_rd[1:750,]
+Just_training<-German_rd[1:500,]
+Just_validation<-German_rd[501:750,]
+Testing <- German_rd[751:1000,]
+
+German_data <- as.data.frame(German_rd)
+Training_sample <- as.data.frame(Training_Validation)
+Testing_sample <- as.data.frame(Testing)
+dTRAIN<-as.data.frame(Just_training)
+dcv<-as.data.frame(Just_validation)
+```
+
+We have randomly created the two groups, the training and the testing
+Now, just to get an idea, let's plot Outcome and the variables.
+
+Here we have histograms for the quantitative variables ; the more interesting to comment are age and Credit_ammount, that seems skewned to the left. This proves our suspects of having high values in one of the extremes.
+Then, we provided barplots for the qualitative parameters. This plots simply show us graphically, for each parameters, the relative frequency of each attribute. 
+
+```{r}
+ggarrange(
+ggplot(German_data, aes(x=Credit_ammount)) + geom_histogram(color="black", fill="red"),
+ggplot(German_data, aes(x=Duration_months)) + geom_histogram(color="black", fill="red"),
+ggplot(German_data, aes(x=Installment_rate)) + geom_histogram(color="black", fill="red"),
+ggplot(German_data, aes(x=Residence_since)) + geom_histogram(color="black", fill="red"))
+```
+```{r}
+ggarrange(
+  ggplot(German_data, aes(x=Number_credits)) + geom_histogram(color="black", fill="red"),
+  ggplot(German_data, aes(x=People_to_mantain)) + geom_histogram(color="black", fill="red"),
+  ggplot(German_data, aes(x=Age)) + geom_histogram(color="black", fill="red"))
+```
+
+```{r}
+ggarrange(
+ggplot(German_data, aes(x=reorder(Balance, Output, function(x)-length(x)))) +
+  geom_bar(fill='red') +  labs(x='Balance'),
+ggplot(German_data, aes(x=reorder(History, Output, function(x)-length(x)))) +
+  geom_bar(fill='red') +  labs(x='History'),
+ggplot(German_data, aes(x=reorder(Purpose1, Output, function(x)-length(x)))) +
+  geom_bar(fill='red') +  labs(x='Purpose1'),
+ggplot(German_data, aes(x=reorder(Purpose2, Output, function(x)-length(x)))) +
+  geom_bar(fill='red') +  labs(x='Purpose2'))
+```
+
+```{r}
+ggarrange(
+ggplot(German_data, aes(x=reorder(Savings1, Output, function(x)-length(x)))) +
+  geom_bar(fill='red') +  labs(x='Savings1'),
+ggplot(German_data, aes(x=reorder(Employment_length1, Output, function(x)-length(x)))) +
+  geom_bar(fill='red') +  labs(x='Employment:length1'),
+ggplot(German_data, aes(x=reorder(Employment_length2, Output, function(x)-length(x)))) +
+  geom_bar(fill='red') +  labs(x='Employment_length2'),
+ggplot(German_data, aes(x=reorder(Male, Output, function(x)-length(x)))) +
+  geom_bar(fill='red') +  labs(x='Male'))
+```
+
+```{r}
+ggarrange(
+ggplot(German_data, aes(x=reorder(Guarantor, Output, function(x)-length(x)))) +
+  geom_bar(fill='red') +  labs(x='Guarantor'),
+ggplot(German_data, aes(x=reorder(House, Output, function(x)-length(x)))) +
+  geom_bar(fill='red') +  labs(x='House'),
+ggplot(German_data, aes(x=reorder(Insurance, Output, function(x)-length(x)))) +
+  geom_bar(fill='red') +  labs(x='Insurance'),
+ggplot(German_data, aes(x=reorder(Car, Output, function(x)-length(x)))) +
+  geom_bar(fill='red') +  labs(x='Car'))
+```
+
+```{r}
+ggarrange(
+ggplot(German_data, aes(x=reorder(Other_plans, Output, function(x)-length(x)))) +
+  geom_bar(fill='red') +  labs(x='Other_plans'),
+ggplot(German_data, aes(x=reorder(FreeHousing, Output, function(x)-length(x)))) +
+  geom_bar(fill='red') +  labs(x='FreeHousing'),
+ggplot(German_data, aes(x=reorder(OwnHouse, Output, function(x)-length(x)))) +
+  geom_bar(fill='red') +  labs(x='OwnHouse'),
+ggplot(German_data, aes(x=reorder(Skilled, Output, function(x)-length(x)))) +
+  geom_bar(fill='red') +  labs(x='Skilled'))
+```
+
+```{r}
+ggarrange(
+ggplot(German_data, aes(x=reorder(Highly_Qualified, Output, function(x)-length(x)))) +
+  geom_bar(fill='red') +  labs(x='Highly_qualified'),
+ggplot(German_data, aes(x=reorder(Telephone, Output, function(x)-length(x)))) +
+  geom_bar(fill='red') +  labs(x='Telephone'),
+ggplot(German_data, aes(x=reorder(Foreign_worker, Output, function(x)-length(x)))) +
+  geom_bar(fill='red') +  labs(x='Foreign_worker'))
+```
+
+##Question 3
+First we randomly split the dataset into two parts: the training and the testing
+```{r}
+Y <- German_data[1:1000,27]
+donnees <- German_data
+indapp <- 1:750
+##############flag
+dapp <- Training_sample
+dtest <-Testing_sample
+loss = rbind(c(0,1), c(5,0))
+dapp.X<-model.matrix(Output~.,data=dapp)
+dtest.X<-model.matrix(Output~.,data=dtest)
+
+
+```
+
+
+We have many explanatory variables so we have to perform variable selection for some models.
+
+Let's first have a look at a linear regression on all the data
+
+
+The problem is to explain the `Output` (column 27) by the other variables. We first consider the linear model. For linear models we will have to first fit the betas on the training sample (dTRAIN) and then use the cross-validation sample (dcv) to select the hyperparameter which in this case is the number of explanatory variables
+
+```{r}
+#recall that dcv is our cross validation set and 
+linear.model <- lm(Output~.,data=dTRAIN)
+summary(linear.model)
+
+
+```
+Some variables seem not to be useful so we would have to proceed with some selection tecniques
+
+We can try with subset selection:
+```{r}
+# either best subset
+mod.sel <- regsubsets(Output~.,data=dTRAIN)
+#or backward stepwise selection
+m.back1 <- regsubsets(Output~.,data=dTRAIN,method="backward")
+m.for1 <- regsubsets(Output~.,data=dTRAIN, method="forward")
+```
+
+We can select the best models according to BIC and Cp
+
+```{r}
+#BIC
+plot(mod.sel,scale="bic")
+#Mallow's Cp
+plot(mod.sel,scale="Cp")
+#backward BIC
+plot(m.back1,scale="bic")
+#backward Cp
+plot(m.back1,scale="Cp")
+#forward Cp
+plot(m.for1,scale="bic")
+#forward Cp
+plot(m.for1,scale="Cp")
+```
+
+```{r}
+a <- summary(mod.sel)
+number <- order(a$bic)[1]
+var.sel <- a$which[number,][-1]
+var.sel1 <- names(var.sel)[var.sel] %>% paste(collapse="+")
+form <- formula(paste("Output~",var.sel1,sep=""))
+mod.BIC <- lm(form,data=dTRAIN)
+
+a <- summary(mod.sel)
+number <- order(a$cp)[1]
+var.sel <- a$which[number,][-1]
+var.sel1 <- names(var.sel)[var.sel] %>% paste(collapse="+")
+form <- formula(paste("Output~",var.sel1,sep=""))
+mod.CP <- lm(form,data=dTRAIN)
+
+a <- summary(m.back1)
+number <- order(a$bic)[1]
+var.sel <- a$which[number,][-1]
+var.sel1 <- names(var.sel)[var.sel] %>% paste(collapse="+")
+form.back <- formula(paste("Output~",var.sel1,sep=""))
+mod.BIC.back <- lm(form.back,data=dTRAIN)
+
+a <- summary(m.back1)
+number <- order(a$cp)[1]
+var.sel <- a$which[number,][-1]
+var.sel1 <- names(var.sel)[var.sel] %>% paste(collapse="+")
+form <- formula(paste("Output~",var.sel1,sep=""))
+mod.CP.back <- lm(form,data=dTRAIN)
+
+a <- summary(m.for1)
+number <- order(a$bic)[1]
+var.sel <- a$which[number,][-1]
+var.sel1 <- names(var.sel)[var.sel] %>% paste(collapse="+")
+form <- formula(paste("Output~",var.sel1,sep=""))
+mod.BIC.for <- lm(form,data=dTRAIN)
+
+a <- summary(m.for1)
+number <- order(a$cp)[1]
+var.sel <- a$which[number,][-1]
+var.sel1 <- names(var.sel)[var.sel] %>% paste(collapse="+")
+form <- formula(paste("Output~",var.sel1,sep=""))
+mod.CP.for <- lm(form,data=dTRAIN)
+
+```
+
+
+We consider the quadratic risk for the models:
+$$E[(Y-\widehat m(X))^2].$$
+This risk is estimated with the test set according to
+$$\frac{1}{n_{test}}\sum_{i\in test}(Y_i-\widehat m(X_i))^2.$$
+Compute the estimated risks for the three linear models:
+
+```{r}
+prev <- data.frame(Y=dtest$Output,lin=predict(linear.model,newdata=dcv),BIC=predict(mod.BIC,newdata=dcv),CP=predict(mod.CP,newdata=dcv),BIC.back=predict(mod.BIC.back,newdata=dcv),CP.back=predict(mod.CP.back,newdata=dcv),BIC.for=predict(mod.BIC.for,newdata=dcv),CP.for=predict(mod.CP.for,newdata=dcv))
+
+prev %>% summarize(Err_lin=mean((Y-lin)^2),Err_BIC=mean((Y-BIC)^2),Err_CP=mean((Y-CP)^2),Err_BIC_back=mean((Y-BIC.back)^2),Err_CP_back=mean((Y-CP.back)^2),Err_BIC_for=mean((Y-BIC.for)^2),Err_CP_for=mean((Y-CP.for)^2))
+```
+
+The first variable selection procedure is obtained through a backward selection approach. The statistical information criteria is BIC.
+
+
+Let us run also a RIDGE and LASSO regressions
+```{r}
+dTRAIN.X <- model.matrix(Output~.,data=dTRAIN)
+dcv.X <- model.matrix(Output~.,data=dcv)
+```
+
+We draw the coefficient paths for ridge and lasso.
+
+```{r}
+mod.R <- glmnet(dTRAIN.X,dTRAIN$Output,alpha=0)
+mod.L <- glmnet(dTRAIN.X,dTRAIN$Output,alpha=1)
+
+plot(mod.R)
+plot(mod.L)
+plot(mod.R,xvar="lambda")
+plot(mod.L,xvar="lambda")
+```
+We select the shrinkage parameter for lasso regression with **cv.glmnet**.
+
+```{r}
+lassoCV <- cv.glmnet(dTRAIN.X,dTRAIN$Output,alpha=1)
+lassoCV$lambda.min
+lasso.sel <- glmnet(dTRAIN.X,dTRAIN$Output,alpha=1,lambda=lassoCV$lambda.min)
+```
+
+Now fit the selected ridge model.
+
+```{r}
+ridgeCV <- cv.glmnet(dTRAIN.X,dTRAIN$Output,alpha=0,lambda=exp(seq(-4,4,length=100)))
+plot(ridgeCV)                   
+ridge.sel <- glmnet(dTRAIN.X,dTRAIN$Output,alpha=0,lambda=ridgeCV$lambda.min)
+```
+
+Estimate the quadratic error for the selected ridge and lasso models. 
+
+```{r}
+prev1 <- prev %>% mutate(ridge=as.vector(predict(ridge.sel,newx=dcv.X)),lasso=as.vector(predict(lasso.sel,newx=dcv.X)))
+prev1 %>% summarize(Err_lin=mean((Y-lin)^2),Err_BIC=mean((Y-BIC)^2),Err_CP=mean((Y-CP)^2),Err_BIC_back=mean((Y-BIC.back)^2),Err_CP_back=mean((Y-CP.back)^2),Err_BIC_for=mean((Y-BIC.for)^2),Err_CP_for=mean((Y-CP.for)^2),Err_ridge=mean((Y-ridge)^2),Err_lasso=mean((Y-lasso)^2))
+```
+Conclusion: we select the best explanatory variables subset which is the one given by the model called Err_BIC_back. 
+Therefore can rerun a regression on the training+cross-validation samples and do our final predictions with the test set
+```{r}
+#rerun
+a <- summary(m.back1)
+number <- order(a$bic)[1]
+var.sel <- a$which[number,][-1]
+var.sel1 <- names(var.sel)[var.sel] %>% paste(collapse="+")
+form <- formula(paste("Output~",var.sel1,sep=""))
+mod.BIC.back <- lm(form,data=dapp)
+
+#final prediction
+prevlm<- predict(mod.BIC.back,newdata=dtest)
+
+#MSE
+MSE_lm<- mean(round(prevlm)!=dtest$Output)
+MSE_lm
+
+#Roc and AUC
+plot(roc(dtest$Output,prevlm))
+AUC_lm<-auc(roc(dtest$Output,prevlm))
+AUC_lm
+#confusionMatrix(data=prevlog,reference =dtest$Output)
+
+#Misclassification error
+optimal_lm <- optimalCutoff(dtest$Output, prevlm)[1]
+conf_lm<-confusionMatrix(dtest$Output, prevlm)
+misclass_lm <- (conf_lm[1,2]*loss[1,2]+conf_lm[2,1]*loss[2,1])/nrow(dapp)/mean(dapp$Output==1)
+misclass_lm
+```
+
+##Logistic
+```{r}
+
+full.logit <- glm(Output~.,data=dTRAIN,family="binomial")
+full.logit
+```
+We implement a variable selection procedure with a backward selection approach using BIC criterion. You just have to use the step function with the direction=“backward” and k=log(nrow(train)) options. We call it mod.back
+```{r}
+mod.back <- step(full.logit,direction="backward",k=log(nrow(dTRAIN)),trace=0)
+```
+
+we Fit a logistic lasso model on the training data (select the shrinkage parameter with **cv.glmnet**).
+
+```{r}
+set.seed(1234)
+cv.lasso <- cv.glmnet(dTRAIN.X,dTRAIN[,27],family="binomial",alpha=1)
+plot(cv.lasso)
+lambda.lasso <- cv.lasso$lambda.min
+mod.lasso <- glmnet(dTRAIN.X,dTRAIN[,27],family="binomial",lambda=lambda.lasso,alpha=1)
+```
+
+The fit a logistic ridge model on the training data (select the shrinkage parameter with **cv.glmnet**).
+
+```{r}
+set.seed(1234)
+cv.ridge <- cv.glmnet(dTRAIN.X,dTRAIN[,27],family="binomial",alpha=0,lambda=exp(seq(-4,3,length=100)))
+plot(cv.ridge)
+lambda.ridge<-cv.ridge$lambda.min
+mod.ridge <- glmnet(dTRAIN.X,dTRAIN[,27],family="binomial",lambda=lambda.ridge,alpha=0)
+```
+
+
+
+Make a comparison of the methods with the error probability (estimated on the test dataset).
+
+```{r}
+prev.full <- predict(full.logit,newdata=dcv,type="response") %>% round() %>% as.factor()
+prev.back <- predict(mod.back,newdata=dcv,type="response") %>% round() %>% as.factor()
+
+prev.lasso <- predict(mod.lasso,newx=dcv.X,type="class")
+prev.ridge <- predict(mod.ridge,newx=dcv.X,type="class")
+prev <- data.frame(full=prev.full,back=prev.back,lasso=as.vector(prev.lasso),ridge=as.vector(prev.ridge))
+prev %>% summarise_at(vars(1:4),~(mean((.!=Y)^2))) 
+```
+Conclusion best model is ridge
+
+Therefore can rerun a regression on the training+cross-validation samples and do our final predictions with the test set
+```{r}
+#rerun
+mod.ridge <- glmnet(dapp.X,dapp[,27],family="binomial",lambda=lambda.ridge,alpha=0)
+#final prediction
+prevlog<- predict(mod.ridge,newx=dtest.X,type="response")
+#prevlog
+
+#MSE
+MSE_log<- mean(round(prevlog)!=dtest$Output)
+MSE_log
+
+#Roc and AUC
+plot(roc(dtest$Output,prevlog))
+AUC_log<-auc(roc(dtest$Output,prevlog))
+AUC_log
+#confusionMatrix(data=prevlog,reference =dtest$Output)
+
+#Misclassification error
+optimal_log <- optimalCutoff(dtest$Output, prevlog)[1]
+conf_log<-confusionMatrix(dtest$Output, prevlog)
+misclass_log <- (conf_log[1,2]*loss[1,2]+conf_log[2,1]*loss[2,1])/nrow(dapp)/mean(dapp$Output==1)
+misclass_log
+```
+
+
+
+
+
+##KNN
+```{r}
+#cross-validation
+
+library(class)
+regle_ppv <- knn(dapp[,-27],dtest[,-27],cl=dapp$Output,k=81)
+
+#function 1
+K_cand <- seq(1,500,by=20)
+err1 <- rep(0,length(K_cand))
+for (i in 1:length(K_cand)){
+  err1[i] <- mean(knn(dapp[,-27],dtest[,-27],cl=dapp$Output,k=K_cand[i])!=dtest$Output)
+}
+K_cand[which.min(err1)]
+
+
+#Function 2 : Leave-one-out cross-validation
+
+err2 <- rep(0,length(K_cand))
+for (i in 1:length(K_cand)){
+  prev_cv <- knn.cv(dapp[,-27],cl=dapp$Output,k=K_cand[i])
+  err2[i] <- mean(prev_cv!=dapp$Output)
+}
+K_cand[which.min(err2)]
+
+#Function 3 : M-fold cross-validation method
+
+err3 <- rep(0,length(K_cand))
+M <- 10
+prev <- rep(0,nrow(dapp))
+n_CV <- nrow(dapp)/M
+for (i in 1:length(K_cand)){
+  for (j in 1:M){
+    ind_testj <- ((j-1)*n_CV+1):(j*n_CV)
+    prev[ind_testj] <- knn(dapp[-ind_testj,-27],dapp[ind_testj,-27],cl=dapp$Output[-ind_testj],k=K_cand[i])
+  }
+  err3[i] <- mean((prev-1)!=dapp$Output)
+}
+K_cand[which.min(err3)]
+```
+
+```{R}
+# Visual inspection
+a <- data.frame(K_cand,err1,err2,err3)
+names(a) <- c("K","TE","LOO","VC_10")
+library(reshape2)
+aa <- melt(a,id="K")
+names(aa) <- c("K","Method","Error")
+ggplot(aa)+aes(x=K,y=Error,color=Method)+geom_line()+theme_bw()
+```
+
+```{R}
+pred_21 <- knn(dapp[,-27],dtest[,-27],cl=dapp$Output,k=21)
+pred_61 <- knn(dapp[,-27],dtest[,-27],cl=dapp$Output,k=61)
+pred_81 <- knn(dapp[,-27],dtest[,-27],cl=dapp$Output,k=81)
+MSE_f1<-mean(pred_21!=dtest$Output)
+MSE_f2<-mean(pred_61!=dtest$Output)
+MSE_f3<-mean(pred_81!=dtest$Output)
+MSE_f1
+MSE_f2
+MSE_f3
+
+pred_final <- knn(dapp[,-27],dtest[,-27],cl=dapp$Output,k=21)
+
+#MSE
+MSE_KNN<-mean(pred_final!=dtest$Output)
+MSE_KNN
+
+#Roc and AUC
+prev1 <- knn(dapp[,-27],dtest[,-27],cl=dapp$Output,k=21,prob=TRUE)
+D <- data.frame(pred=attributes(prev1)$prob,obs=dtest$Output)
+plot(roc(D$obs, D$pred))
+AUC_KNN<-auc(roc(D$obs, D$pred))
+AUC_KNN
+#Mispecification error
+
+conf_KNN <- table(dtest$Output,pred_final)
+conf_KNN
+misclass_KNN<-(conf_KNN[1,2]*loss[1,2]+conf_KNN[2,1]*loss[2,1])/nrow(dapp)/mean(dapp$Output==1)
+misclass_KNN
+```
+
+#Trees
+We start by inspecting the regression tree to have a "feeling" of the model.
+
+```{r}
+#regression tree
+tree <- rpart(dapp$Output~.,data=dapp[,-27])
+prp(tree)
+rpart.plot(tree)
+
+#decision tree
+datafact<-as.factor(dapp$Output)
+tree2<-rpart(datafact~.,data=dapp[,-27])
+prp(tree2)
+predtree<-predict(tree2, newdata=dtest)
+```
+
+Nice interactive visualization that however has to be commented out for the markdown to knit properly
+```{r}
+#library(visNetwork)
+#library('sparkline')
+#visTree(tree2)
+```
+
+
+Finally we calculate our error and model selection values.
+```{r}
+#MSE
+MSE_tree<-mean(predtree!=dtest$Output)
+MSE_tree
+#Roc and AUC
+plot(roc(dtest$Output,predtree[,2]))
+AUC_tree<-auc(roc(dtest$Output,predtree[,2]))
+AUC_tree
+#table<-table(predtree[,2],dtest$Output)
+
+#Misclassification error
+predtree<-predict(tree2, newdata=dtest,type='class')
+
+conf_tree <- table(dtest$Output,predtree)
+conf_tree
+misclass_tree<-(conf_tree[1,2]*loss[1,2]+conf_tree[2,1]*loss[2,1])/nrow(dapp)/mean(dapp$Output==1)
+misclass_tree
+```
+
+
+##Question 4
+
+Finally we summarise our findings in the following table
+```{r}
+mytable <- data.frame(MSE=c(MSE_lm, MSE_log, MSE_KNN, MSE_tree), 
+    AUC=c(AUC_lm,AUC_log,AUC_KNN,AUC_tree), 
+    Misclassification_error=c(misclass_lm,misclass_log,misclass_KNN,misclass_tree), row.names = c("linear probability","logistic", "KNN", "decision tree"))
+print(mytable)
+View(mytable)
+```
+By looking at the table, we can see how the Logistic model seems more performing according to both MSE (as it displays the lowest value for the errors) and AUC (as it displays the largest area under the curve). If we look at misclassification error, on the other hand, the linear probability model seems the most performing, as it displays the lowest value.
+Our recomendation would be to choose one of the two; in particular, the logistic seems the best one, as it outperformes the others according to 2 criteria out of 3.
+
+
